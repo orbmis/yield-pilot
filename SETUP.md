@@ -49,6 +49,7 @@ npm run db:deploy
 ```
 
 7. Deploy. Use `USE_FIXTURES=false` only after provider credentials are configured.
+8. Keep `EXECUTION_ENABLED=false` until Base USDC protocol adapters, Tenderly simulations, and Privy signer execution have been validated.
 
 ## Railway Deployment
 
@@ -65,3 +66,4 @@ npm run db:deploy && npm run start
 ```
 
 8. Deploy and open the generated Railway URL.
+9. Keep `EXECUTION_ENABLED=false` until Base USDC protocol adapters, Tenderly simulations, and Privy signer execution have been validated.
