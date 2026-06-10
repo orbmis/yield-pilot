@@ -53,6 +53,23 @@ Body:
 
 Returns an OpenAI-generated recommendation, tradeoffs, and rationale. If `OPENAI_API_KEY` is absent, the route returns a deterministic fallback explanation.
 
+## `POST /api/strategy/preview`
+
+Body:
+
+```json
+{
+  "wallet": "0x...",
+  "scenarioKind": "Balanced",
+  "constraints": {
+    "maximumProtocolCount": 3,
+    "maximumAllocationPercent": 45
+  }
+}
+```
+
+Recomputes scenarios server-side from the wallet's idle Base USDC balance, filters to executable Aave V3 Base USDC and configured Morpho Base USDC allocations, builds approval/deposit steps, runs the Tenderly simulation boundary, persists a `previewed` execution record, and returns the final execution plan.
+
 ## `GET /api/agent-wallet`
 
 Returns Coinbase AgentKit credential readiness and target network.
