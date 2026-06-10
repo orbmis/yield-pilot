@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getYieldOpportunities } from "@/lib/clients/defillama";
-import { getPortfolio } from "@/lib/clients/debank";
+import { getPortfolio } from "@/lib/clients/zapper";
 import { estimateSwitchingCosts } from "@/lib/clients/tenderly";
 import { samplePortfolio } from "@/lib/data/sample";
 import { generateScenarios } from "@/lib/optimization/engine";

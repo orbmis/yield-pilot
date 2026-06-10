@@ -12,7 +12,8 @@
 | `NEXT_PUBLIC_PRIVY_POLICY_IDS` | Optional | Comma-separated Privy policy ids applied to the session signer. |
 | `OPENAI_API_KEY` | AI route | OpenAI API key for the Responses API. |
 | `OPENAI_MODEL` | Optional | Defaults to `gpt-5.2`. |
-| `DEBANK_ACCESS_KEY` | Production | DeBank Open API access key. |
+| `ZAPPER_API_KEY` | Production | Zapper API key for wallet balances and DeFi positions. |
+| `ZAPPER_NETWORKS` | Optional | Comma-separated Zapper network filters, for example `ETHEREUM_MAINNET,BASE_MAINNET`. Leave empty to query all supported networks. |
 | `TENDERLY_ACCESS_KEY` | Production | Tenderly API key for simulations. |
 | `TENDERLY_ACCOUNT_SLUG` | Production | Tenderly account slug. |
 | `TENDERLY_PROJECT_SLUG` | Production | Tenderly project slug. |

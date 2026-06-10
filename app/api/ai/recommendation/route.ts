@@ -13,7 +13,16 @@ const RequestSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  const payload = RequestSchema.parse(await request.json());
-  const recommendation = await explainRecommendation(payload as never);
-  return NextResponse.json({ data: { recommendation } });
+  try {
+    const payload = RequestSchema.parse(await request.json());
+    const recommendation = await explainRecommendation(payload as never);
+    return NextResponse.json({ data: { recommendation } });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Unable to generate recommendation."
+      },
+      { status: 502 }
+    );
+  }
 }

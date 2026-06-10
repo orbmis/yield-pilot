@@ -2,7 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePrivy, useSessionSigners, useWallets } from "@privy-io/react-auth";
-import { Bot, CircleDollarSign, Gauge, Loader2, LogOut, Network, ShieldCheck, WalletCards } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import type { Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import {
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  CircleDollarSign,
+  Gauge,
+  Loader2,
+  LogOut,
+  Network,
+  ShieldCheck,
+  WalletCards
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +50,25 @@ type DelegatedWalletMetadata = {
   delegated?: boolean;
 };
 
+const OPPORTUNITIES_PER_PAGE = 6;
+
+const markdownComponents: Components = {
+  h1: ({ children }) => <h1 className="text-base font-semibold leading-6">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-base font-semibold leading-6">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold leading-6">{children}</h3>,
+  p: ({ children }) => <p className="leading-6">{children}</p>,
+  ul: ({ children }) => <ul className="ml-5 list-disc space-y-1">{children}</ul>,
+  ol: ({ children }) => <ol className="ml-5 list-decimal space-y-1">{children}</ol>,
+  li: ({ children }) => <li className="leading-6">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+  a: ({ children, href }) => (
+    <a className="font-medium text-primary underline-offset-4 hover:underline" href={href} rel="noreferrer" target="_blank">
+      {children}
+    </a>
+  ),
+  code: ({ children }) => <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">{children}</code>
+};
+
 export function DashboardClient({
   initialData,
   constraints,
@@ -47,8 +80,20 @@ export function DashboardClient({
   const [data, setData] = useState(initialData);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
+  const [aiRecommendation, setAiRecommendation] = useState<string | null>(null);
+  const [isLoadingRecommendation, setIsLoadingRecommendation] = useState(false);
+  const [recommendationError, setRecommendationError] = useState<string | null>(null);
+  const [opportunityPage, setOpportunityPage] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const recommended = useMemo(() => pickRecommendedScenario(data.scenarios), [data.scenarios]);
+  const opportunityPageCount = Math.max(1, Math.ceil(data.opportunities.length / OPPORTUNITIES_PER_PAGE));
+  const visibleOpportunities = data.opportunities.slice(
+    (opportunityPage - 1) * OPPORTUNITIES_PER_PAGE,
+    opportunityPage * OPPORTUNITIES_PER_PAGE
+  );
+  const firstOpportunityIndex =
+    data.opportunities.length === 0 ? 0 : (opportunityPage - 1) * OPPORTUNITIES_PER_PAGE + 1;
+  const lastOpportunityIndex = Math.min(opportunityPage * OPPORTUNITIES_PER_PAGE, data.opportunities.length);
 
   useEffect(() => {
     if (!walletAddress) return;
@@ -81,6 +126,51 @@ export function DashboardClient({
     return () => controller.abort();
   }, [constraints.maximumAllocationPercent, constraints.maximumProtocolCount, walletAddress]);
 
+  useEffect(() => {
+    setOpportunityPage(1);
+  }, [data.opportunities.length]);
+
+  useEffect(() => {
+    if (!recommended) {
+      setAiRecommendation(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsLoadingRecommendation(true);
+    setRecommendationError(null);
+
+    fetch("/api/ai/recommendation", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        portfolio: data.portfolio,
+        opportunities: data.opportunities,
+        scenarios: data.scenarios,
+        constraints
+      }),
+      signal: controller.signal
+    })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error ?? `Recommendation request failed with ${response.status}`);
+        }
+        return payload as { data: { recommendation: string } };
+      })
+      .then((payload) => setAiRecommendation(payload.data.recommendation))
+      .catch((requestError) => {
+        if (requestError instanceof DOMException && requestError.name === "AbortError") return;
+        setAiRecommendation(null);
+        setRecommendationError(
+          requestError instanceof Error ? requestError.message : "Unable to generate AI recommendation."
+        );
+      })
+      .finally(() => setIsLoadingRecommendation(false));
+
+    return () => controller.abort();
+  }, [constraints, data.opportunities, data.portfolio, data.scenarios, recommended]);
+
   return (
     <main className="min-h-screen">
       <header className="border-b bg-white">
@@ -95,7 +185,7 @@ export function DashboardClient({
             <p className="mt-2 text-sm text-muted-foreground">
               {fixtureMode
                 ? "Fixture mode is enabled. Connected wallets will use demo data until USE_FIXTURES=false."
-                : "Connect a wallet to load DeBank positions and generate cost-adjusted scenarios."}
+                : "Connect a wallet to load Zapper portfolio data and generate cost-adjusted scenarios."}
             </p>
           </div>
           {privyEnabled ? (
@@ -211,22 +301,53 @@ export function DashboardClient({
 
         <section className="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]">
           <Card>
-            <CardHeader>
+            <CardHeader className="gap-3 md:flex-row md:items-center md:justify-between">
               <CardTitle>Yield Opportunities</CardTitle>
+              <div className="text-sm text-muted-foreground">
+                {firstOpportunityIndex}-{lastOpportunityIndex} of {data.opportunities.length}
+              </div>
             </CardHeader>
-            <CardContent className="grid gap-3 md:grid-cols-2">
-              {data.opportunities.map((opportunity) => (
-                <div key={opportunity.id} className="rounded-lg border p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="font-semibold">{opportunity.protocol}</h3>
-                    <Badge>{formatPercent(opportunity.apy)}</Badge>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                {visibleOpportunities.map((opportunity) => (
+                  <div key={opportunity.id} className="rounded-lg border p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="font-semibold">{opportunity.protocol}</h3>
+                      <Badge>{formatPercent(opportunity.apy)}</Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {opportunity.symbol} on {opportunity.chain}
+                    </p>
+                    <p className="mt-3 text-sm">TVL {formatCurrency(opportunity.tvlUsd)}</p>
                   </div>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {opportunity.symbol} on {opportunity.chain}
-                  </p>
-                  <p className="mt-3 text-sm">TVL {formatCurrency(opportunity.tvlUsd)}</p>
-                </div>
-              ))}
+                ))}
+              </div>
+
+              <div className="flex items-center justify-between border-t pt-4">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setOpportunityPage((page) => Math.max(1, page - 1))}
+                  disabled={opportunityPage === 1}
+                  aria-label="Previous yield opportunities page"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Page {opportunityPage} of {opportunityPageCount}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setOpportunityPage((page) => Math.min(opportunityPageCount, page + 1))}
+                  disabled={opportunityPage === opportunityPageCount}
+                  aria-label="Next yield opportunities page"
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
             </CardContent>
           </Card>
 
@@ -234,7 +355,7 @@ export function DashboardClient({
             <CardHeader>
               <CardTitle>Recommendation Panel</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="max-h-[560px] overflow-y-auto">
               <div className="rounded-lg bg-muted p-4">
                 <p className="text-sm leading-6">
                   {recommended
@@ -245,7 +366,20 @@ export function DashboardClient({
                 </p>
               </div>
               <div className="mt-4 space-y-3 text-sm text-muted-foreground">
-                <p>AI explanations are available from `POST /api/ai/recommendation` when `OPENAI_API_KEY` is set.</p>
+                {isLoadingRecommendation ? (
+                  <p className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Generating AI recommendation...
+                  </p>
+                ) : aiRecommendation ? (
+                  <div className="space-y-3 text-foreground">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                      {aiRecommendation}
+                    </ReactMarkdown>
+                  </div>
+                ) : recommendationError ? (
+                  <p className="text-destructive">{recommendationError}</p>
+                ) : null}
                 <p>Switching costs include deposit, withdraw, and gas estimates from the Tenderly integration boundary.</p>
               </div>
             </CardContent>

@@ -1,6 +1,6 @@
 # YieldPilot
 
-YieldPilot is a production-oriented MVP for optimizing DeFi yield allocations. It connects Privy authentication, Coinbase AgentKit through Privy embedded wallets, DeBank portfolio discovery, DefiLlama yield markets, Tenderly cost estimates, a Prisma/PostgreSQL persistence layer, and an OpenAI Responses API recommendation route.
+YieldPilot is a production-oriented MVP for optimizing DeFi yield allocations. It connects Privy authentication, Coinbase AgentKit through Privy embedded wallets, Zapper portfolio discovery, DefiLlama yield markets, Tenderly cost estimates, a Prisma/PostgreSQL persistence layer, and an OpenAI Responses API recommendation route.
 
 ## Stack
 
@@ -10,7 +10,7 @@ YieldPilot is a production-oriented MVP for optimizing DeFi yield allocations. I
 - PostgreSQL and Prisma ORM
 - Privy authentication
 - Coinbase AgentKit with Privy embedded wallet execution
-- DeBank Open API, DefiLlama Yield API, Tenderly Simulation API
+- Zapper GraphQL API, DefiLlama Yield API, Tenderly Simulation API
 - OpenAI Responses API
 - Vitest unit tests
 
@@ -28,7 +28,7 @@ npm run dev
 
 Open `http://localhost:3000/dashboard`.
 
-By default `USE_FIXTURES=true` lets the MVP run without third-party API keys. Set it to `false` after configuring DeBank, Tenderly, Privy, and OpenAI credentials.
+By default `USE_FIXTURES=true` lets the MVP run without third-party API keys. Set it to `false` after configuring Zapper, Tenderly, Privy, and OpenAI credentials.
 
 ## Test
 

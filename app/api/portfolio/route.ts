@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { samplePortfolio } from "@/lib/data/sample";
-import { getPortfolio, getProtocolPositions, getTokenBalances } from "@/lib/clients/debank";
+import { getPortfolio, getProtocolPositions, getTokenBalances } from "@/lib/clients/zapper";
 
 export async function GET(request: NextRequest) {
   const walletAddress = request.nextUrl.searchParams.get("wallet") ?? samplePortfolio.walletAddress;
