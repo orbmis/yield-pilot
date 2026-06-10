@@ -49,7 +49,7 @@ npm run test
 
 ## Strategy Execution Foundation
 
-Live execution is guarded by `EXECUTION_ENABLED`. The Stage 1 foundation stores execution plans and steps, defines Base USDC safety caps, and fails closed unless execution is explicitly enabled.
+Live execution is guarded by `EXECUTION_ENABLED`. The execution foundation stores execution plans and steps, defines Base USDC safety caps, and fails closed unless execution is explicitly enabled. Stage 2 adds calldata builders for Aave V3 Base USDC and one allowlisted Morpho Base USDC ERC-4626 vault.
 
 ```env
 EXECUTION_ENABLED="false"
@@ -59,6 +59,8 @@ MORPHO_BASE_USDC_VAULT_ADDRESS=""
 EXECUTION_MAX_GAS_USD="25"
 EXECUTION_MAX_APPROVAL_USD="100"
 ```
+
+The Aave adapter uses the official Aave address book package for the Base Pool address. The Morpho adapter requires `MORPHO_BASE_USDC_VAULT_ADDRESS` and will not build deposit steps without it.
 
 ## Privy Embedded Wallet Automation
 

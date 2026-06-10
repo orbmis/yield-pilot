@@ -17,6 +17,7 @@
     "fixtures:load": "tsx scripts/load-fixtures.ts"
   },
   "dependencies": {
+    "@bgd-labs/aave-address-book": "^4.44.22",
     "@coinbase/agentkit": "^0.10.4",
     "@prisma/client": "^5.22.0",
     "@privy-io/react-auth": "^2.4.0",
@@ -32,6 +33,7 @@
     "remark-gfm": "^4.0.1",
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
+    "viem": "^2.52.2",
     "zod": "^3.25.0"
   },
   "devDependencies": {
