@@ -17,12 +17,14 @@ export function getPrivyDelegatedWalletConfig(walletId?: string) {
   const appSecret = process.env.PRIVY_APP_SECRET;
   const authorizationPrivateKey = process.env.PRIVY_WALLET_AUTHORIZATION_PRIVATE_KEY;
   const networkId = process.env.PRIVY_DELEGATED_NETWORK_ID ?? "base-mainnet";
+  const rpcUrl = process.env.BASE_RPC_URL;
 
   return {
     appId,
     appSecret,
     authorizationPrivateKey,
     networkId,
+    rpcUrl,
     walletId
   };
 }
@@ -47,6 +49,7 @@ export async function createPrivyDelegatedWalletProvider(walletId: string) {
     authorizationPrivateKey: config.authorizationPrivateKey,
     walletId,
     networkId: config.networkId,
+    rpcUrl: config.rpcUrl,
     walletType: "embedded"
   });
 }
