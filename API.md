@@ -7,7 +7,7 @@ Query:
 - `wallet` optional wallet address
 - `type` optional: `portfolio`, `balances`, or `positions`
 
-Returns normalized portfolio data from DeBank or fixture fallback.
+Returns normalized portfolio data from Zapper or fixture fallback.
 
 ## `GET /api/opportunities`
 

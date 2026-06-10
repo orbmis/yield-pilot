@@ -1,28 +1,60 @@
 import { describe, expect, it } from "vitest";
-import { buildPortfolio, normalizeProtocolPositions, normalizeTokenBalances } from "@/lib/portfolio/normalize";
+import { buildPortfolio, normalizeZapperProtocolPositions, normalizeZapperTokenBalances } from "@/lib/portfolio/normalize";
 
 describe("portfolio normalization", () => {
-  it("normalizes DeBank token balances into value-bearing tokens", () => {
-    const balances = normalizeTokenBalances([
-      { chain: "base", id: "0x1", symbol: "USDC", amount: 100, price: 1 },
-      { chain: "base", id: "0x2", symbol: "DUST", amount: 10, price: 0 }
-    ]);
+  it("normalizes Zapper token balances into value-bearing tokens", () => {
+    const balances = normalizeZapperTokenBalances({
+      portfolioV2: {
+        tokenBalances: {
+          byToken: {
+            edges: [
+              {
+                node: {
+                  network: { slug: "base" },
+                  tokenAddress: "0x1",
+                  symbol: "USDC",
+                  balance: 100,
+                  balanceUSD: 100
+                }
+              },
+              {
+                node: {
+                  network: { slug: "base" },
+                  tokenAddress: "0x2",
+                  symbol: "DUST",
+                  balance: 10,
+                  balanceUSD: 0
+                }
+              }
+            ]
+          }
+        }
+      }
+    });
 
     expect(balances).toHaveLength(1);
     expect(balances[0]).toMatchObject({ chain: "base", symbol: "USDC", valueUsd: 100 });
   });
 
   it("normalizes protocol positions and builds totals", () => {
-    const positions = normalizeProtocolPositions([
-      {
-        id: "aave3",
-        name: "Aave V3",
-        chain: "base",
-        portfolio_item_list: [
-          { stats: { net_usd_value: 250 }, detail: { supply_token_list: [{ symbol: "USDC" }] } }
-        ]
+    const positions = normalizeZapperProtocolPositions({
+      portfolioV2: {
+        appBalances: {
+          byApp: {
+            edges: [
+              {
+                node: {
+                  balanceUSD: 250,
+                  app: { displayName: "Aave V3", slug: "aave-v3" },
+                  network: { slug: "base" },
+                  products: [{ assets: [{ symbol: "USDC" }] }]
+                }
+              }
+            ]
+          }
+        }
       }
-    ]);
+    });
     const portfolio = buildPortfolio("0xabc", [], positions);
 
     expect(positions[0].protocol).toBe("Aave V3");

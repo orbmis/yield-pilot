@@ -1,60 +1,120 @@
 import type { Portfolio, ProtocolPosition, TokenBalance } from "@/lib/types";
 
-type DebankToken = {
-  chain?: string;
-  id?: string;
-  optimized_symbol?: string;
-  symbol?: string;
-  amount?: number;
-  price?: number;
+type ZapperTokenNode = {
+  balance?: number | string | null;
+  balanceUSD?: number | string | null;
+  symbol?: string | null;
+  name?: string | null;
+  tokenAddress?: string | null;
+  network?: {
+    name?: string | null;
+    slug?: string | null;
+  } | null;
 };
 
-type DebankProtocol = {
-  id?: string;
-  name?: string;
-  chain?: string;
-  portfolio_item_list?: Array<{
-    stats?: { net_usd_value?: number };
-    detail?: { supply_token_list?: Array<{ symbol?: string }> };
-    proxy_detail?: { supply_token_list?: Array<{ symbol?: string }> };
-  }>;
+type ZapperProtocolNode = {
+  balanceUSD?: number | string | null;
+  app?: {
+    displayName?: string | null;
+    slug?: string | null;
+  } | null;
+  network?: {
+    name?: string | null;
+    slug?: string | null;
+  } | null;
+  products?: Array<{
+    label?: string | null;
+    assets?: Array<{
+      balanceUSD?: number | string | null;
+      symbol?: string | null;
+      tokens?: Array<{ symbol?: string | null }> | null;
+    }> | null;
+  }> | null;
 };
 
-export function normalizeTokenBalances(rawTokens: DebankToken[]): TokenBalance[] {
-  return rawTokens
-    .map((token) => {
-      const amount = Number(token.amount ?? 0);
-      const priceUsd = Number(token.price ?? 0);
-      return {
-        chain: token.chain ?? "unknown",
-        address: token.id ?? "native",
-        symbol: token.optimized_symbol ?? token.symbol ?? "UNKNOWN",
-        amount,
-        priceUsd,
-        valueUsd: amount * priceUsd
-      };
-    })
-    .filter((token) => token.valueUsd > 0);
+type ZapperPortfolioResponse = {
+  portfolioV2?: {
+    tokenBalances?: {
+      byToken?: {
+        edges?: Array<{ node?: ZapperTokenNode | null }> | null;
+      } | null;
+    } | null;
+    appBalances?: {
+      byApp?: {
+        edges?: Array<{ node?: ZapperProtocolNode | null }> | null;
+      } | null;
+    } | null;
+  } | null;
+};
+
+function asZapperPortfolioResponse(data: unknown): ZapperPortfolioResponse {
+  return typeof data === "object" && data !== null ? (data as ZapperPortfolioResponse) : {};
 }
 
-export function normalizeProtocolPositions(rawProtocols: DebankProtocol[]): ProtocolPosition[] {
-  return rawProtocols.flatMap((protocol) =>
-    (protocol.portfolio_item_list ?? [])
-      .map((item, index) => {
-        const tokens =
-          item.detail?.supply_token_list ?? item.proxy_detail?.supply_token_list ?? [];
-        const valueUsd = Number(item.stats?.net_usd_value ?? 0);
-        return {
-          id: `${protocol.id ?? protocol.name ?? "protocol"}-${index}`,
-          protocol: protocol.name ?? protocol.id ?? "Unknown Protocol",
-          chain: protocol.chain ?? "unknown",
-          asset: tokens.map((token) => token.symbol).filter(Boolean).join("-") || "UNKNOWN",
-          valueUsd,
-          apy: 0
-        };
-      })
-      .filter((position) => position.valueUsd > 0)
-  );
+function toNumber(value: number | string | null | undefined) {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function normalizeChainName(network?: { name?: string | null; slug?: string | null } | null) {
+  return network?.slug ?? network?.name?.toLowerCase().replace(/\s+/g, "-") ?? "unknown";
+}
+
+export function normalizeZapperTokenBalances(data: unknown): TokenBalance[] {
+  const edges = asZapperPortfolioResponse(data).portfolioV2?.tokenBalances?.byToken?.edges ?? [];
+
+  return edges
+    .map((edge) => {
+      const token = edge.node;
+      if (!token) return null;
+
+      const amount = toNumber(token.balance);
+      const valueUsd = toNumber(token.balanceUSD);
+      const priceUsd = amount > 0 ? valueUsd / amount : 0;
+
+      return {
+        chain: normalizeChainName(token.network),
+        address: token.tokenAddress ?? "native",
+        symbol: token.symbol ?? token.name ?? "UNKNOWN",
+        amount,
+        priceUsd,
+        valueUsd
+      };
+    })
+    .filter((token): token is TokenBalance => Boolean(token && token.valueUsd > 0));
+}
+
+export function normalizeZapperProtocolPositions(data: unknown): ProtocolPosition[] {
+  const edges = asZapperPortfolioResponse(data).portfolioV2?.appBalances?.byApp?.edges ?? [];
+
+  return edges
+    .map((edge, index) => {
+      const position = edge.node;
+      if (!position) return null;
+
+      const valueUsd = toNumber(position.balanceUSD);
+      const protocol = position.app?.displayName ?? position.app?.slug ?? "Unknown Protocol";
+      const asset =
+        position.products
+          ?.flatMap((product) =>
+            product.assets?.flatMap((asset) => [
+              asset.symbol,
+              ...(asset.tokens?.map((token) => token.symbol) ?? [])
+            ]) ?? []
+          )
+          .filter(Boolean)
+          .join("-") || "UNKNOWN";
+
+      return {
+        id: `${position.app?.slug ?? protocol}-${index}`,
+        protocol,
+        chain: normalizeChainName(position.network),
+        asset,
+        valueUsd,
+        apy: 0
+      };
+    })
+    .filter((position): position is ProtocolPosition => Boolean(position && position.valueUsd > 0));
 }
 
 export function buildPortfolio(walletAddress: string, balances: TokenBalance[], positions: ProtocolPosition[]): Portfolio {
