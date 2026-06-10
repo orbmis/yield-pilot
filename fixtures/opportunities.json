@@ -1,0 +1,5 @@
+[
+  { "id": "morpho-base-usdc", "pool": "base-morpho-usdc", "protocol": "Morpho", "chain": "base", "symbol": "USDC", "apy": 8.4, "tvlUsd": 98000000, "stablecoin": true },
+  { "id": "pendle-arbitrum-usde", "pool": "arbitrum-pendle-usde", "protocol": "Pendle", "chain": "arbitrum", "symbol": "USDe", "apy": 13.6, "tvlUsd": 72000000, "stablecoin": true },
+  { "id": "aerodrome-base-usdc-weth", "pool": "base-aerodrome-usdc-weth", "protocol": "Aerodrome", "chain": "base", "symbol": "USDC-WETH", "apy": 18.9, "tvlUsd": 31000000, "stablecoin": false }
+]

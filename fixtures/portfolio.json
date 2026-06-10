@@ -1,0 +1,10 @@
+{
+  "walletAddress": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+  "totalValueUsd": 48500,
+  "weightedApy": 5.86,
+  "positions": [
+    { "id": "aave-v3-base-usdc", "protocol": "Aave V3", "chain": "base", "asset": "USDC", "valueUsd": 16000, "apy": 4.2 },
+    { "id": "compound-v3-arbitrum-usdc", "protocol": "Compound V3", "chain": "arbitrum", "asset": "USDC", "valueUsd": 9500, "apy": 5.1 },
+    { "id": "lido-ethereum-weth", "protocol": "Lido", "chain": "ethereum", "asset": "WETH", "valueUsd": 15000, "apy": 3.4 }
+  ]
+}

@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String      @id @default(cuid())
+  privyUserId   String      @unique
+  email         String?
+  walletAddress String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  portfolios    Portfolio[]
+}
+
+model Portfolio {
+  id            String     @id @default(cuid())
+  userId        String?
+  walletAddress String
+  totalValueUsd Decimal    @db.Decimal(18, 2)
+  weightedApy   Decimal    @db.Decimal(9, 4)
+  capturedAt    DateTime   @default(now())
+  user          User?      @relation(fields: [userId], references: [id])
+  balances      Balance[]
+  positions     Position[]
+  scenarios     Scenario[]
+}
+
+model Balance {
+  id          String    @id @default(cuid())
+  portfolioId String
+  chain       String
+  tokenAddress String
+  symbol      String
+  amount      Decimal   @db.Decimal(36, 18)
+  priceUsd    Decimal   @db.Decimal(18, 8)
+  valueUsd    Decimal   @db.Decimal(18, 2)
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+}
+
+model Position {
+  id          String    @id @default(cuid())
+  portfolioId String
+  externalId  String
+  protocol    String
+  chain       String
+  asset       String
+  valueUsd    Decimal   @db.Decimal(18, 2)
+  apy         Decimal   @db.Decimal(9, 4)
+  portfolio   Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+}
+
+model YieldOpportunity {
+  id         String   @id
+  pool       String
+  protocol   String
+  chain      String
+  symbol     String
+  apy        Decimal  @db.Decimal(9, 4)
+  tvlUsd     Decimal  @db.Decimal(18, 2)
+  stablecoin Boolean  @default(false)
+  url        String?
+  updatedAt  DateTime @updatedAt
+}
+
+model Scenario {
+  id                String               @id @default(cuid())
+  portfolioId       String
+  kind              String
+  totalAllocatedUsd Decimal              @db.Decimal(18, 2)
+  projectedYieldUsd Decimal              @db.Decimal(18, 2)
+  estimatedCostsUsd Decimal              @db.Decimal(18, 2)
+  netYieldUsd       Decimal              @db.Decimal(18, 2)
+  weightedApy       Decimal              @db.Decimal(9, 4)
+  createdAt         DateTime             @default(now())
+  portfolio         Portfolio            @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  allocations       ScenarioAllocation[]
+}
+
+model ScenarioAllocation {
+  id                String   @id @default(cuid())
+  scenarioId        String
+  opportunityId     String
+  protocol          String
+  chain             String
+  symbol            String
+  amountUsd         Decimal  @db.Decimal(18, 2)
+  allocationPercent Decimal  @db.Decimal(9, 4)
+  apy               Decimal  @db.Decimal(9, 4)
+  projectedYieldUsd Decimal  @db.Decimal(18, 2)
+  estimatedCostUsd  Decimal  @db.Decimal(18, 2)
+  netYieldUsd       Decimal  @db.Decimal(18, 2)
+  scenario          Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+}
