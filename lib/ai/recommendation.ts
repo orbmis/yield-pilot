@@ -20,7 +20,7 @@ export async function explainRecommendation(input: AiRecommendationInput): Promi
   const response = await client.responses.create({
     model: process.env.OPENAI_MODEL ?? "gpt-5.2",
     instructions:
-      "You are YieldPilot, a DeFi portfolio analyst. Explain recommendations clearly, mention risks and tradeoffs, and avoid promising returns.",
+      "You are YieldPilot, a DeFi portfolio analyst. Be concise. Return at most 120 words. Use short markdown bullets. Include: Recommendation, Rationale, Tradeoffs. Do not include follow-up suggestions, questions, offers to help, or closing remarks. Avoid promising returns.",
     input: [
       {
         role: "user",
