@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  AlertTriangle,
   Bot,
   ChevronLeft,
   ChevronRight,
@@ -51,7 +52,9 @@ type DelegatedWalletMetadata = {
   delegated?: boolean;
 };
 
-const OPPORTUNITIES_PER_PAGE = 6;
+const OPPORTUNITIES_PER_PAGE = 10;
+const EXECUTION_NETWORK_LABEL = "Base";
+const EXECUTION_CHAIN_ID = 8453;
 
 const markdownComponents: Components = {
   h1: ({ children }) => <h1 className="text-base font-semibold leading-6">{children}</h1>,
@@ -100,6 +103,20 @@ export function DashboardClient({
   const firstOpportunityIndex =
     data.opportunities.length === 0 ? 0 : (opportunityPage - 1) * OPPORTUNITIES_PER_PAGE + 1;
   const lastOpportunityIndex = Math.min(opportunityPage * OPPORTUNITIES_PER_PAGE, data.opportunities.length);
+  const baseUsdcBalance = useMemo(
+    () =>
+      data.portfolio.tokenBalances.find(
+        (balance) => balance.chain === "base" && balance.symbol.toUpperCase() === "USDC"
+      ) ?? null,
+    [data.portfolio.tokenBalances]
+  );
+  const baseEthBalance = useMemo(
+    () =>
+      data.portfolio.tokenBalances.find(
+        (balance) => balance.chain === "base" && balance.symbol.toUpperCase() === "ETH"
+      ) ?? null,
+    [data.portfolio.tokenBalances]
+  );
 
   useEffect(() => {
     if (!walletAddress) return;
@@ -271,7 +288,7 @@ export function DashboardClient({
               <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-primary-foreground">
                 <Gauge className="h-5 w-5" />
               </div>
-              <h1 className="text-2xl font-semibold">YieldPilot Dashboard</h1>
+              <h1 className="text-2xl font-semibold">Yield Pilot</h1>
             </div>
             <p className="mt-2 text-sm text-muted-foreground">
               {fixtureMode
@@ -304,16 +321,6 @@ export function DashboardClient({
           </div>
         ) : null}
 
-        {walletAddress ? (
-          <div className="rounded-lg border bg-white px-4 py-3 text-sm text-muted-foreground">
-            Connected wallet <span className="font-medium text-foreground">{shortAddress(walletAddress)}</span>
-          </div>
-        ) : !fixtureMode ? (
-          <div className="rounded-lg border bg-white px-4 py-3 text-sm text-muted-foreground">
-            Connect a wallet to load live portfolio balances and protocol positions.
-          </div>
-        ) : null}
-
         <section className="grid gap-4 lg:grid-cols-4">
           <Metric title="Portfolio Value" value={formatCurrency(data.portfolio.totalValueUsd)} icon={CircleDollarSign} />
           <Metric title="Current APY" value={formatPercent(data.portfolio.weightedApy)} icon={Gauge} />
@@ -321,34 +328,55 @@ export function DashboardClient({
           <Metric title="Recommended" value={recommended?.kind ?? "N/A"} icon={Bot} />
         </section>
 
-        <section className="grid gap-6 lg:grid-cols-[0.95fr_1.35fr]">
-          <Card>
+        <section className="grid w-full gap-6 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.35fr)]">
+          <Card className="w-full min-w-0">
             <CardHeader>
               <CardTitle>Current Allocation</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {data.portfolio.positions.map((position) => (
-                <div key={position.id}>
-                  <div className="mb-2 flex items-center justify-between text-sm">
-                    <span className="font-medium">{position.protocol}</span>
-                    <span className="text-muted-foreground">{formatCurrency(position.valueUsd)}</span>
+              {data.portfolio.positions.length > 0 ? (
+                data.portfolio.positions.map((position) => (
+                  <div key={position.id}>
+                    <div className="mb-2 flex items-center justify-between text-sm">
+                      <span className="font-medium">{position.protocol}</span>
+                      <span className="text-muted-foreground">{formatCurrency(position.valueUsd)}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-muted">
+                      <div
+                        className="h-2 rounded-full bg-primary"
+                        style={{ width: `${Math.min((position.valueUsd / data.portfolio.totalValueUsd) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+                      <span>{position.chain}</span>
+                      <span>{formatPercent(position.apy)}</span>
+                    </div>
                   </div>
-                  <div className="h-2 rounded-full bg-muted">
-                    <div
-                      className="h-2 rounded-full bg-primary"
-                      style={{ width: `${Math.min((position.valueUsd / data.portfolio.totalValueUsd) * 100, 100)}%` }}
-                    />
-                  </div>
-                  <div className="mt-1 flex justify-between text-xs text-muted-foreground">
-                    <span>{position.chain}</span>
-                    <span>{formatPercent(position.apy)}</span>
+                ))
+              ) : (
+                <div className="rounded-lg border border-dashed bg-muted/30 px-4 py-6 text-sm">
+                  <p className="font-medium text-foreground">No active DeFi positions detected.</p>
+                  <p className="mt-2 text-muted-foreground">
+                    {walletAddress
+                      ? "Use the recommendation panel to preview a Base USDC strategy from your idle wallet balance."
+                      : "Connect a wallet to load your portfolio and discover deployable yield strategies."}
+                  </p>
+                  <div className="mt-4">
+                    {walletAddress ? (
+                      <Button variant="outline" size="sm" onClick={() => void handlePreviewStrategy()} disabled={!recommended || isPreviewingExecution || isDeployingExecution}>
+                        {isPreviewingExecution ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
+                        Preview Strategy
+                      </Button>
+                    ) : (
+                      <Badge>Wallet required</Badge>
+                    )}
                   </div>
                 </div>
-              ))}
+              )}
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="w-full min-w-0">
             <CardHeader>
               <CardTitle>Scenario Comparison</CardTitle>
             </CardHeader>
@@ -392,7 +420,7 @@ export function DashboardClient({
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.35fr_0.95fr]">
-          <Card>
+          <Card className="min-h-[840px]">
             <CardHeader className="gap-3 md:flex-row md:items-center md:justify-between">
               <CardTitle>Yield Opportunities</CardTitle>
               <div className="text-sm text-muted-foreground">
@@ -443,11 +471,11 @@ export function DashboardClient({
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="min-h-[840px]">
             <CardHeader>
               <CardTitle>Recommendation Panel</CardTitle>
             </CardHeader>
-            <CardContent className="max-h-[560px] overflow-y-auto">
+            <CardContent className="max-h-[840px] overflow-y-auto">
               <div className="rounded-lg bg-muted p-4">
                 <p className="text-sm leading-6">
                   {recommended
@@ -475,6 +503,8 @@ export function DashboardClient({
                 <p>Switching costs include deposit, withdraw, and gas estimates from the Tenderly integration boundary.</p>
               </div>
               <StrategyExecutionPanel
+                baseEthBalanceUsd={baseEthBalance?.valueUsd ?? 0}
+                baseUsdcBalanceUsd={baseUsdcBalance?.valueUsd ?? 0}
                 connected={Boolean(walletAddress)}
                 executionWalletId={executionWalletId}
                 isDeploying={isDeployingExecution}
@@ -661,6 +691,8 @@ function Metric({
 }
 
 function StrategyExecutionPanel({
+  baseEthBalanceUsd,
+  baseUsdcBalanceUsd,
   connected,
   error,
   executionWalletId,
@@ -671,6 +703,8 @@ function StrategyExecutionPanel({
   plan,
   previewDisabled
 }: {
+  baseEthBalanceUsd: number;
+  baseUsdcBalanceUsd: number;
   connected: boolean;
   error: string | null;
   executionWalletId: string | null;
@@ -681,7 +715,23 @@ function StrategyExecutionPanel({
   plan: ExecutionPlan | null;
   previewDisabled: boolean;
 }) {
-  const canDeploy = Boolean(plan && executionWalletId && !isDeploying && !isPreviewing);
+  const totalEstimatedGasUsd = plan?.steps.reduce((total, step) => total + step.estimatedGasUsd, 0) ?? 0;
+  const planIsBaseOnly = Boolean(
+    plan?.steps.length && plan.steps.every((step) => step.chain === "base" && step.chainId === EXECUTION_CHAIN_ID)
+  );
+  const simulationsPassed = Boolean(plan?.steps.length && plan.steps.every((step) => step.simulationPassed));
+  const hasBaseUsdc = baseUsdcBalanceUsd > 0;
+  const hasEnoughBaseEthForGas = !plan || totalEstimatedGasUsd <= 0 || baseEthBalanceUsd >= totalEstimatedGasUsd;
+  const canDeploy = Boolean(
+    plan &&
+      executionWalletId &&
+      hasBaseUsdc &&
+      planIsBaseOnly &&
+      simulationsPassed &&
+      hasEnoughBaseEthForGas &&
+      !isDeploying &&
+      !isPreviewing
+  );
 
   return (
     <div className="mt-5 border-t pt-4">
@@ -692,16 +742,48 @@ function StrategyExecutionPanel({
             Preview the exact Base USDC transactions before approving deployment.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={onPreview} disabled={previewDisabled}>
-            {isPreviewing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
-            Preview Strategy
-          </Button>
-          <Button size="sm" onClick={onDeploy} disabled={!canDeploy}>
-            {isDeploying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
-            Approve & Deploy
-          </Button>
+        <Badge className="bg-muted text-foreground">Execution network: {EXECUTION_NETWORK_LABEL}</Badge>
+      </div>
+
+      <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+        <div className="rounded-md border px-3 py-2">
+          <p className="text-muted-foreground">Base USDC</p>
+          <p className="mt-1 font-medium text-foreground">{formatCurrency(baseUsdcBalanceUsd)}</p>
         </div>
+        <div className="rounded-md border px-3 py-2">
+          <p className="text-muted-foreground">Base ETH gas balance</p>
+          <p className="mt-1 font-medium text-foreground">{formatCurrency(baseEthBalanceUsd)}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {connected && !hasBaseUsdc ? (
+          <ExecutionWarning message="No Base USDC detected in the connected wallet. V1 can only deploy idle Base USDC." />
+        ) : null}
+        {connected && plan && !hasEnoughBaseEthForGas ? (
+          <ExecutionWarning
+            message={`Insufficient Base ETH for estimated gas. Plan estimates ${formatCurrency(
+              totalEstimatedGasUsd
+            )}; wallet shows ${formatCurrency(baseEthBalanceUsd)}.`}
+          />
+        ) : null}
+        {plan && !planIsBaseOnly ? (
+          <ExecutionWarning message="This execution plan is not Base-only. Deployment is disabled." />
+        ) : null}
+        {plan && !simulationsPassed ? (
+          <ExecutionWarning message="One or more simulations have not passed. Deployment is disabled." />
+        ) : null}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button variant="outline" size="sm" onClick={onPreview} disabled={previewDisabled}>
+          {isPreviewing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
+          Preview Strategy
+        </Button>
+        <Button size="sm" onClick={onDeploy} disabled={!canDeploy}>
+          {isDeploying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+          Approve & Deploy
+        </Button>
       </div>
 
       {!connected ? (
@@ -772,6 +854,15 @@ function StrategyExecutionPanel({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ExecutionWarning({ message }: { message: string }) {
+  return (
+    <div className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <p>{message}</p>
     </div>
   );
 }
