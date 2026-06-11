@@ -75,3 +75,49 @@ export interface OptimizationConstraints {
   maximumProtocolCount: number;
   maximumAllocationPercent: number;
 }
+
+export type ExecutableProtocol = "aave-v3" | "morpho";
+
+export type ExecutionStepType = "approve" | "deposit";
+
+export type ExecutionStatus =
+  | "draft"
+  | "previewed"
+  | "approved"
+  | "simulated"
+  | "submitted"
+  | "confirmed"
+  | "failed";
+
+export interface ExecutionStep {
+  id: string;
+  type: ExecutionStepType;
+  protocol: ExecutableProtocol;
+  chain: "base";
+  chainId: 8453;
+  tokenAddress: string;
+  tokenSymbol: "USDC";
+  amountRaw: string;
+  amountUsd: number;
+  target: string;
+  calldata: string;
+  estimatedGasUsd: number;
+  simulationPassed: boolean;
+  simulationId?: string;
+  txHash?: string;
+  status: ExecutionStatus;
+}
+
+export interface ExecutionPlan {
+  id: string;
+  walletAddress: string;
+  scenarioKind: ScenarioKind;
+  status: ExecutionStatus;
+  totalAmountUsd: number;
+  maxGasUsd: number;
+  maxApprovalUsd: number;
+  steps: ExecutionStep[];
+  createdAt: string;
+  approvedAt?: string;
+  executedAt?: string;
+}

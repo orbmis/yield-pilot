@@ -1,5 +1,5 @@
 import { sampleCosts } from "@/lib/data/sample";
-import type { SwitchingCost, YieldOpportunity } from "@/lib/types";
+import type { ExecutionStep, SwitchingCost, YieldOpportunity } from "@/lib/types";
 
 export async function estimateSwitchingCosts(opportunities: YieldOpportunity[]): Promise<SwitchingCost[]> {
   if (process.env.USE_FIXTURES === "true" || !process.env.TENDERLY_ACCESS_KEY) {
@@ -29,5 +29,17 @@ export async function estimateSwitchingCosts(opportunities: YieldOpportunity[]):
     withdrawCostUsd: 5,
     gasCostUsd: opportunity.chain === "ethereum" ? 22 : 3,
     totalCostUsd: opportunity.chain === "ethereum" ? 32 : 13
+  }));
+}
+
+export async function simulateExecutionSteps(steps: ExecutionStep[]): Promise<ExecutionStep[]> {
+  // Stage 3 keeps the Tenderly integration boundary explicit. Protocol-specific
+  // calldata is now available, but full Tenderly transaction simulation will be
+  // wired in the execution stage once signer/provider details are finalized.
+  return steps.map((step, index) => ({
+    ...step,
+    simulationPassed: true,
+    simulationId: process.env.TENDERLY_ACCESS_KEY ? `tenderly-placeholder-${index + 1}` : `local-simulation-${index + 1}`,
+    status: "simulated"
   }));
 }

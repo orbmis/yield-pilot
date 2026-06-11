@@ -17,4 +17,10 @@
 | `TENDERLY_ACCESS_KEY` | Production | Tenderly API key for simulations. |
 | `TENDERLY_ACCOUNT_SLUG` | Production | Tenderly account slug. |
 | `TENDERLY_PROJECT_SLUG` | Production | Tenderly project slug. |
+| `EXECUTION_ENABLED` | Execution | Set `true` to allow live strategy execution. Defaults to disabled. |
+| `BASE_RPC_URL` | Execution | Base mainnet RPC URL for execution reads and transaction submission support. |
+| `BASE_USDC_ADDRESS` | Optional | Base USDC token address. Defaults to `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`. |
+| `MORPHO_BASE_USDC_VAULT_ADDRESS` | Execution | Allowlisted Morpho Base USDC ERC-4626 vault address used by the Morpho adapter. |
+| `EXECUTION_MAX_GAS_USD` | Optional | Maximum allowed estimated gas per execution step. Defaults to `25`. |
+| `EXECUTION_MAX_APPROVAL_USD` | Optional | Maximum allowed approval value per approval step. Defaults to `100`. |
 | `USE_FIXTURES` | Optional | Set `true` for local demo data, `false` for live providers. |

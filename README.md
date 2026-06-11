@@ -47,6 +47,21 @@ npm run test
 - `POST /api/ai/recommendation` - OpenAI explanation for recommendations
 - `GET /api/agent-wallet` - Coinbase AgentKit credential/status boundary
 
+## Strategy Execution Foundation
+
+Live execution is guarded by `EXECUTION_ENABLED`. The execution foundation stores execution plans and steps, defines Base USDC safety caps, and fails closed unless execution is explicitly enabled. Stage 2 adds calldata builders for Aave V3 Base USDC and one allowlisted Morpho Base USDC ERC-4626 vault.
+
+```env
+EXECUTION_ENABLED="false"
+BASE_RPC_URL=""
+BASE_USDC_ADDRESS="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+MORPHO_BASE_USDC_VAULT_ADDRESS=""
+EXECUTION_MAX_GAS_USD="25"
+EXECUTION_MAX_APPROVAL_USD="100"
+```
+
+The Aave adapter uses the official Aave address book package for the Base Pool address. The Morpho adapter requires `MORPHO_BASE_USDC_VAULT_ADDRESS` and will not build deposit steps without it.
+
 ## Privy Embedded Wallet Automation
 
 YieldPilot uses the user's Privy embedded wallet for both portfolio discovery and execution.
