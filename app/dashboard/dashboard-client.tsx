@@ -14,6 +14,7 @@ import {
   Loader2,
   LogOut,
   Network,
+  Rocket,
   ShieldCheck,
   WalletCards
 } from "lucide-react";
@@ -21,7 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { pickRecommendedScenario } from "@/lib/scenario/recommendation";
-import type { Portfolio, Scenario, SwitchingCost, YieldOpportunity } from "@/lib/types";
+import type { ExecutionPlan, Portfolio, Scenario, SwitchingCost, YieldOpportunity } from "@/lib/types";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
 type DashboardData = {
@@ -84,6 +85,11 @@ export function DashboardClient({
   const [isLoadingRecommendation, setIsLoadingRecommendation] = useState(false);
   const [recommendationError, setRecommendationError] = useState<string | null>(null);
   const [opportunityPage, setOpportunityPage] = useState(1);
+  const [executionWalletId, setExecutionWalletId] = useState<string | null>(null);
+  const [executionPlan, setExecutionPlan] = useState<ExecutionPlan | null>(null);
+  const [executionError, setExecutionError] = useState<string | null>(null);
+  const [isPreviewingExecution, setIsPreviewingExecution] = useState(false);
+  const [isDeployingExecution, setIsDeployingExecution] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recommended = useMemo(() => pickRecommendedScenario(data.scenarios), [data.scenarios]);
   const opportunityPageCount = Math.max(1, Math.ceil(data.opportunities.length / OPPORTUNITIES_PER_PAGE));
@@ -126,9 +132,30 @@ export function DashboardClient({
     return () => controller.abort();
   }, [constraints.maximumAllocationPercent, constraints.maximumProtocolCount, walletAddress]);
 
+  async function refreshDashboardData() {
+    if (!walletAddress) return;
+
+    const params = new URLSearchParams({
+      wallet: walletAddress,
+      maximumProtocolCount: String(constraints.maximumProtocolCount),
+      maximumAllocationPercent: String(constraints.maximumAllocationPercent)
+    });
+    const response = await fetch(`/api/scenarios?${params.toString()}`);
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.error ?? `Scenario request failed with ${response.status}`);
+    }
+    setData((payload as { data: DashboardData }).data);
+  }
+
   useEffect(() => {
     setOpportunityPage(1);
   }, [data.opportunities.length]);
+
+  useEffect(() => {
+    setExecutionPlan(null);
+    setExecutionError(null);
+  }, [recommended?.kind, walletAddress]);
 
   useEffect(() => {
     if (!recommended) {
@@ -171,6 +198,70 @@ export function DashboardClient({
     return () => controller.abort();
   }, [constraints, data.opportunities, data.portfolio, data.scenarios, recommended]);
 
+  async function handlePreviewStrategy() {
+    if (!walletAddress || !recommended) return;
+
+    setIsPreviewingExecution(true);
+    setExecutionError(null);
+
+    try {
+      const response = await fetch("/api/strategy/preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wallet: walletAddress,
+          scenarioKind: recommended.kind,
+          constraints
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error ?? `Execution preview failed with ${response.status}`);
+      }
+      setExecutionPlan((payload as { data: { plan: ExecutionPlan } }).data.plan);
+    } catch (requestError) {
+      setExecutionPlan(null);
+      setExecutionError(requestError instanceof Error ? requestError.message : "Unable to preview strategy execution.");
+    } finally {
+      setIsPreviewingExecution(false);
+    }
+  }
+
+  async function handleDeployStrategy() {
+    if (!executionPlan || !executionWalletId) return;
+
+    setIsDeployingExecution(true);
+    setExecutionError(null);
+
+    try {
+      const response = await fetch("/api/strategy/execute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          executionId: executionPlan.id,
+          walletId: executionWalletId,
+          approved: true
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error ?? `Execution failed with ${response.status}`);
+      }
+      setExecutionPlan((payload as { data: { plan: ExecutionPlan } }).data.plan);
+      await refreshDashboardData();
+    } catch (requestError) {
+      setExecutionError(requestError instanceof Error ? requestError.message : "Unable to deploy strategy.");
+      const currentPlanId = executionPlan.id;
+      const response = await fetch(`/api/strategy/executions/${currentPlanId}`).catch(() => null);
+      if (response?.ok) {
+        const payload = await response.json();
+        setExecutionPlan((payload as { data: { plan: ExecutionPlan } }).data.plan);
+      }
+    } finally {
+      setIsDeployingExecution(false);
+    }
+  }
+
   return (
     <main className="min-h-screen">
       <header className="border-b bg-white">
@@ -192,6 +283,7 @@ export function DashboardClient({
             <PrivyWalletControls
               connectedAddress={walletAddress}
               onWalletAddress={setWalletAddress}
+              onExecutionWalletId={setExecutionWalletId}
               isLoadingPortfolio={isLoadingPortfolio}
               automationSignerId={automationSignerId}
               automationPolicyIds={automationPolicyIds}
@@ -382,6 +474,17 @@ export function DashboardClient({
                 ) : null}
                 <p>Switching costs include deposit, withdraw, and gas estimates from the Tenderly integration boundary.</p>
               </div>
+              <StrategyExecutionPanel
+                connected={Boolean(walletAddress)}
+                executionWalletId={executionWalletId}
+                isDeploying={isDeployingExecution}
+                isPreviewing={isPreviewingExecution}
+                onDeploy={() => void handleDeployStrategy()}
+                onPreview={() => void handlePreviewStrategy()}
+                plan={executionPlan}
+                previewDisabled={!recommended || !walletAddress || isPreviewingExecution || isDeployingExecution}
+                error={executionError}
+              />
             </CardContent>
           </Card>
         </section>
@@ -393,12 +496,14 @@ export function DashboardClient({
 function PrivyWalletControls({
   connectedAddress,
   onWalletAddress,
+  onExecutionWalletId,
   isLoadingPortfolio,
   automationSignerId,
   automationPolicyIds
 }: {
   connectedAddress: string | null;
   onWalletAddress: (address: string | null) => void;
+  onExecutionWalletId: (walletId: string | null) => void;
   isLoadingPortfolio: boolean;
   automationSignerId?: string;
   automationPolicyIds: string[];
@@ -424,7 +529,8 @@ function PrivyWalletControls({
   useEffect(() => {
     if (!ready || !walletsReady) return;
     onWalletAddress(walletAddress);
-  }, [onWalletAddress, ready, walletAddress, walletsReady]);
+    onExecutionWalletId(delegatedWalletId ?? null);
+  }, [delegatedWalletId, onExecutionWalletId, onWalletAddress, ready, walletAddress, walletsReady]);
 
   async function handleDelegateWallet() {
     if (!walletAddress) return;
@@ -551,6 +657,122 @@ function Metric({
         <Icon className="h-5 w-5 text-primary" />
       </CardContent>
     </Card>
+  );
+}
+
+function StrategyExecutionPanel({
+  connected,
+  error,
+  executionWalletId,
+  isDeploying,
+  isPreviewing,
+  onDeploy,
+  onPreview,
+  plan,
+  previewDisabled
+}: {
+  connected: boolean;
+  error: string | null;
+  executionWalletId: string | null;
+  isDeploying: boolean;
+  isPreviewing: boolean;
+  onDeploy: () => void;
+  onPreview: () => void;
+  plan: ExecutionPlan | null;
+  previewDisabled: boolean;
+}) {
+  const canDeploy = Boolean(plan && executionWalletId && !isDeploying && !isPreviewing);
+
+  return (
+    <div className="mt-5 border-t pt-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-foreground">Strategy Execution</h4>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Preview the exact Base USDC transactions before approving deployment.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={onPreview} disabled={previewDisabled}>
+            {isPreviewing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Rocket className="mr-2 h-4 w-4" />}
+            Preview Strategy
+          </Button>
+          <Button size="sm" onClick={onDeploy} disabled={!canDeploy}>
+            {isDeploying ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="mr-2 h-4 w-4" />}
+            Approve & Deploy
+          </Button>
+        </div>
+      </div>
+
+      {!connected ? (
+        <p className="mt-3 text-xs text-muted-foreground">Connect a wallet before previewing execution.</p>
+      ) : !executionWalletId ? (
+        <p className="mt-3 text-xs text-muted-foreground">
+          Enable automation first so the server can execute through the delegated embedded wallet.
+        </p>
+      ) : null}
+
+      {error ? <p className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
+
+      {plan ? (
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-2 rounded-lg border p-3 text-xs sm:grid-cols-3">
+            <div>
+              <p className="text-muted-foreground">Scenario</p>
+              <p className="mt-1 font-medium text-foreground">{plan.scenarioKind}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Deploy Amount</p>
+              <p className="mt-1 font-medium text-foreground">{formatCurrency(plan.totalAmountUsd)}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Status</p>
+              <p className="mt-1 font-medium capitalize text-foreground">{plan.status}</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {plan.steps.map((step, index) => (
+              <div key={step.id} className="rounded-lg border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      {index + 1}. {step.protocol} {step.type}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {formatCurrency(step.amountUsd)} {step.tokenSymbol} on {step.chain}
+                    </p>
+                  </div>
+                  <Badge>{step.status}</Badge>
+                </div>
+                <dl className="mt-3 grid gap-2 text-xs text-muted-foreground">
+                  <div>
+                    <dt>Target</dt>
+                    <dd className="break-all font-mono text-foreground">{step.target}</dd>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <dt>Estimated gas</dt>
+                      <dd className="text-foreground">{formatCurrency(step.estimatedGasUsd)}</dd>
+                    </div>
+                    <div>
+                      <dt>Simulation</dt>
+                      <dd className="text-foreground">{step.simulationPassed ? "Passed" : "Not passed"}</dd>
+                    </div>
+                  </div>
+                  {step.txHash ? (
+                    <div>
+                      <dt>Transaction</dt>
+                      <dd className="break-all font-mono text-foreground">{step.txHash}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
