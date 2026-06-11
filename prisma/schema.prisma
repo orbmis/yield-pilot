@@ -97,6 +97,16 @@ model ScenarioAllocation {
   scenario          Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
 }
 
+model AiRecommendationCache {
+  id             String   @id @default(cuid())
+  cacheKey       String   @unique
+  model          String
+  promptVersion  String
+  recommendation String   @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+}
+
 model StrategyExecution {
   id             String                  @id @default(cuid())
   walletAddress  String
