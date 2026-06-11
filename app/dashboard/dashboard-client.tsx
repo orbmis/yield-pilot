@@ -15,6 +15,7 @@ import {
   Loader2,
   LogOut,
   Network,
+  RefreshCw,
   Rocket,
   ShieldCheck,
   WalletCards
@@ -52,9 +53,16 @@ type DelegatedWalletMetadata = {
   delegated?: boolean;
 };
 
+type CachedAiRecommendation = {
+  recommendation: string;
+  cachedAt: number;
+};
+
 const OPPORTUNITIES_PER_PAGE = 10;
 const EXECUTION_NETWORK_LABEL = "Base";
 const EXECUTION_CHAIN_ID = 8453;
+const AI_RECOMMENDATION_CLIENT_CACHE_PREFIX = "yieldpilot:ai-recommendation:v1:";
+const AI_RECOMMENDATION_CLIENT_CACHE_TTL_MS = 60 * 60 * 1000;
 
 const markdownComponents: Components = {
   h1: ({ children }) => <h1 className="text-base font-semibold leading-6">{children}</h1>,
@@ -72,6 +80,63 @@ const markdownComponents: Components = {
   ),
   code: ({ children }) => <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">{children}</code>
 };
+
+function stableStringifyForClient(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringifyForClient(item)).join(",")}]`;
+  }
+
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringifyForClient(record[key])}`)
+    .join(",")}}`;
+}
+
+function hashForClientCache(value: string) {
+  let hash = 5381;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 33) ^ value.charCodeAt(index);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function getCachedAiRecommendation(cacheKey: string) {
+  try {
+    const rawValue = window.localStorage.getItem(cacheKey);
+    if (!rawValue) return null;
+
+    const parsed = JSON.parse(rawValue) as CachedAiRecommendation;
+    if (!parsed.recommendation || Date.now() - parsed.cachedAt > AI_RECOMMENDATION_CLIENT_CACHE_TTL_MS) {
+      window.localStorage.removeItem(cacheKey);
+      return null;
+    }
+
+    return parsed.recommendation;
+  } catch {
+    return null;
+  }
+}
+
+function setCachedAiRecommendation(cacheKey: string, recommendation: string) {
+  try {
+    window.localStorage.setItem(cacheKey, JSON.stringify({ recommendation, cachedAt: Date.now() } satisfies CachedAiRecommendation));
+  } catch {
+    // Browser storage can be unavailable or full; the server cache remains the fallback.
+  }
+}
+
+function removeCachedAiRecommendation(cacheKey: string) {
+  try {
+    window.localStorage.removeItem(cacheKey);
+  } catch {
+    // Browser storage can be unavailable; force refresh still bypasses the server cache.
+  }
+}
 
 export function DashboardClient({
   initialData,
@@ -116,6 +181,22 @@ export function DashboardClient({
         (balance) => balance.chain === "base" && balance.symbol.toUpperCase() === "ETH"
       ) ?? null,
     [data.portfolio.tokenBalances]
+  );
+  const recommendationRequestBody = useMemo(
+    () => ({
+      portfolio: data.portfolio,
+      opportunities: data.opportunities,
+      scenarios: data.scenarios,
+      constraints
+    }),
+    [constraints, data.opportunities, data.portfolio, data.scenarios]
+  );
+  const recommendationCacheKey = useMemo(
+    () =>
+      `${AI_RECOMMENDATION_CLIENT_CACHE_PREFIX}${hashForClientCache(
+        stableStringifyForClient(recommendationRequestBody)
+      )}`,
+    [recommendationRequestBody]
   );
 
   useEffect(() => {
@@ -181,18 +262,21 @@ export function DashboardClient({
     }
 
     const controller = new AbortController();
-    setIsLoadingRecommendation(true);
+    const cachedRecommendation = getCachedAiRecommendation(recommendationCacheKey);
+
     setRecommendationError(null);
+    if (cachedRecommendation) {
+      setAiRecommendation(cachedRecommendation);
+      setIsLoadingRecommendation(false);
+      return () => controller.abort();
+    }
+
+    setIsLoadingRecommendation(true);
 
     fetch("/api/ai/recommendation", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        portfolio: data.portfolio,
-        opportunities: data.opportunities,
-        scenarios: data.scenarios,
-        constraints
-      }),
+      body: JSON.stringify(recommendationRequestBody),
       signal: controller.signal
     })
       .then(async (response) => {
@@ -202,7 +286,10 @@ export function DashboardClient({
         }
         return payload as { data: { recommendation: string } };
       })
-      .then((payload) => setAiRecommendation(payload.data.recommendation))
+      .then((payload) => {
+        setCachedAiRecommendation(recommendationCacheKey, payload.data.recommendation);
+        setAiRecommendation(payload.data.recommendation);
+      })
       .catch((requestError) => {
         if (requestError instanceof DOMException && requestError.name === "AbortError") return;
         setAiRecommendation(null);
@@ -213,7 +300,39 @@ export function DashboardClient({
       .finally(() => setIsLoadingRecommendation(false));
 
     return () => controller.abort();
-  }, [constraints, data.opportunities, data.portfolio, data.scenarios, recommended]);
+  }, [recommendationCacheKey, recommendationRequestBody, recommended]);
+
+  async function handleRefreshRecommendation() {
+    if (!recommended) return;
+
+    setIsLoadingRecommendation(true);
+    setRecommendationError(null);
+    removeCachedAiRecommendation(recommendationCacheKey);
+
+    try {
+      const response = await fetch("/api/ai/recommendation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...recommendationRequestBody,
+          forceRefresh: true
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error ?? `Recommendation request failed with ${response.status}`);
+      }
+      const recommendation = (payload as { data: { recommendation: string } }).data.recommendation;
+      setCachedAiRecommendation(recommendationCacheKey, recommendation);
+      setAiRecommendation(recommendation);
+    } catch (requestError) {
+      setRecommendationError(
+        requestError instanceof Error ? requestError.message : "Unable to refresh AI recommendation."
+      );
+    } finally {
+      setIsLoadingRecommendation(false);
+    }
+  }
 
   async function handlePreviewStrategy() {
     if (!walletAddress || !recommended) return;
@@ -472,8 +591,21 @@ export function DashboardClient({
           </Card>
 
           <Card className="min-h-[840px]">
-            <CardHeader>
+            <CardHeader className="gap-3 md:flex-row md:items-center md:justify-between">
               <CardTitle>Recommendation Panel</CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void handleRefreshRecommendation()}
+                disabled={!recommended || isLoadingRecommendation}
+              >
+                {isLoadingRecommendation ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Refresh AI
+              </Button>
             </CardHeader>
             <CardContent className="max-h-[840px] overflow-y-auto">
               <div className="rounded-lg bg-muted p-4">
