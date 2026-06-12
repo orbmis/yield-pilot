@@ -13,14 +13,14 @@ export function PrivyProviderClient({ children }: { children: React.ReactNode })
     <PrivyProvider
       appId={appId}
       config={{
-        loginMethods: ["email", "wallet"],
+        loginMethods: ["email"],
         appearance: {
           theme: "light",
           accentColor: "#14755f",
           logo: "/logo.svg"
         },
         embeddedWallets: {
-          createOnLogin: "users-without-wallets"
+          createOnLogin: "all-users"
         }
       }}
     >

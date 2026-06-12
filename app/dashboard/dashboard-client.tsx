@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePrivy, useSessionSigners, useWallets } from "@privy-io/react-auth";
+import { useCreateWallet, usePrivy, useSessionSigners, useWallets } from "@privy-io/react-auth";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -440,6 +440,10 @@ export function DashboardClient({
           </div>
         ) : null}
 
+        {walletAddress && !baseUsdcBalance ? (
+          <ExecutionWarning message="No Base USDC detected in the connected wallet. V1 can only deploy idle Base USDC." />
+        ) : null}
+
         <section className="grid gap-4 lg:grid-cols-4">
           <Metric title="Portfolio Value" value={formatCurrency(data.portfolio.totalValueUsd)} icon={CircleDollarSign} />
           <Metric title="Current APY" value={formatPercent(data.portfolio.weightedApy)} icon={Gauge} />
@@ -670,15 +674,18 @@ function PrivyWalletControls({
   automationSignerId?: string;
   automationPolicyIds: string[];
 }) {
-  const { ready, authenticated, login, linkWallet, logout, user } = usePrivy();
+  const { ready, authenticated, login, logout, user } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
+  const { createWallet } = useCreateWallet();
   const { addSessionSigners, removeSessionSigners } = useSessionSigners();
   const [isDelegating, setIsDelegating] = useState(false);
+  const [isCreatingWallet, setIsCreatingWallet] = useState(false);
+  const [walletCreationError, setWalletCreationError] = useState<string | null>(null);
   const [delegationError, setDelegationError] = useState<string | null>(null);
   const [automationEnabled, setAutomationEnabled] = useState(false);
-  const embeddedWallet =
-    wallets.find((wallet) => wallet.walletClientType === "privy" || wallet.walletClientType === "privy-v2") ??
-    wallets[0];
+  const embeddedWallet = wallets.find(
+    (wallet) => wallet.walletClientType === "privy" || wallet.walletClientType === "privy-v2"
+  );
   const walletAddress = embeddedWallet?.address ?? null;
   const linkedWallet = user?.linkedAccounts.find(
     (account) =>
@@ -722,6 +729,20 @@ function PrivyWalletControls({
     }
   }
 
+  async function handleCreateEmbeddedWallet() {
+    setIsCreatingWallet(true);
+    setWalletCreationError(null);
+
+    try {
+      const wallet = await createWallet();
+      onWalletAddress(wallet.address);
+    } catch (error) {
+      setWalletCreationError(error instanceof Error ? error.message : "Embedded wallet creation was not completed.");
+    } finally {
+      setIsCreatingWallet(false);
+    }
+  }
+
   async function handleDisableAutomation() {
     if (!walletAddress) return;
 
@@ -749,19 +770,34 @@ function PrivyWalletControls({
 
   if (!authenticated) {
     return (
-      <Button onClick={() => login({ loginMethods: ["wallet", "email"] })}>
+      <Button onClick={() => login({ loginMethods: ["email"] })}>
         <WalletCards className="mr-2 h-4 w-4" />
         Connect Wallet
       </Button>
     );
   }
 
+  if (!walletsReady) {
+    return (
+      <Button disabled>
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        Loading Wallet
+      </Button>
+    );
+  }
+
   if (!connectedAddress) {
     return (
-      <Button onClick={() => linkWallet({ walletChainType: "ethereum-only" })}>
-        <WalletCards className="mr-2 h-4 w-4" />
-        Link Wallet
-      </Button>
+      <div className="flex flex-col items-start gap-2 md:items-end">
+        <Button onClick={() => void handleCreateEmbeddedWallet()} disabled={isCreatingWallet}>
+          {isCreatingWallet ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WalletCards className="mr-2 h-4 w-4" />}
+          Create Embedded Wallet
+        </Button>
+        <p className="max-w-xl text-xs text-muted-foreground">
+          Create the Privy embedded wallet used for portfolio loading and automation.
+        </p>
+        {walletCreationError ? <p className="max-w-xl text-xs text-destructive">{walletCreationError}</p> : null}
+      </div>
     );
   }
 
@@ -889,9 +925,6 @@ function StrategyExecutionPanel({
       </div>
 
       <div className="mt-3 space-y-2">
-        {connected && !hasBaseUsdc ? (
-          <ExecutionWarning message="No Base USDC detected in the connected wallet. V1 can only deploy idle Base USDC." />
-        ) : null}
         {connected && plan && !hasEnoughBaseEthForGas ? (
           <ExecutionWarning
             message={`Insufficient Base ETH for estimated gas. Plan estimates ${formatCurrency(
