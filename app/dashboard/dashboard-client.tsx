@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useCreateWallet, usePrivy, useSessionSigners, useWallets } from "@privy-io/react-auth";
+import { useCreateWallet, usePrivy, useSendTransaction, useSessionSigners, useWallets } from "@privy-io/react-auth";
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { encodeFunctionData, isAddress, parseEther, parseUnits } from "viem";
 import {
   AlertTriangle,
   Bot,
@@ -12,11 +13,14 @@ import {
   ChevronRight,
   CircleDollarSign,
   Gauge,
+  Copy,
+  Download,
   Loader2,
   LogOut,
   Network,
   RefreshCw,
   Rocket,
+  Send,
   ShieldCheck,
   WalletCards
 } from "lucide-react";
@@ -24,7 +28,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { pickRecommendedScenario } from "@/lib/scenario/recommendation";
-import type { ExecutionPlan, Portfolio, Scenario, SwitchingCost, YieldOpportunity } from "@/lib/types";
+import type { ExecutionPlan, Portfolio, Scenario, SwitchingCost, TokenBalance, YieldOpportunity } from "@/lib/types";
 import { formatCurrency, formatPercent } from "@/lib/utils";
 
 type DashboardData = {
@@ -58,11 +62,84 @@ type CachedAiRecommendation = {
   cachedAt: number;
 };
 
+type TransferNetwork = {
+  id: string;
+  label: string;
+  chainId: number;
+  nativeSymbol: string;
+  usdcAddress: `0x${string}`;
+  explorerUrl: string;
+};
+
+type TransferToken = "native" | "usdc";
+
 const OPPORTUNITIES_PER_PAGE = 10;
 const EXECUTION_NETWORK_LABEL = "Base";
 const EXECUTION_CHAIN_ID = 8453;
 const AI_RECOMMENDATION_CLIENT_CACHE_PREFIX = "yieldpilot:ai-recommendation:v1:";
 const AI_RECOMMENDATION_CLIENT_CACHE_TTL_MS = 60 * 60 * 1000;
+const TRANSFER_NETWORKS: TransferNetwork[] = [
+  {
+    id: "ethereum",
+    label: "Ethereum",
+    chainId: 1,
+    nativeSymbol: "ETH",
+    usdcAddress: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    explorerUrl: "https://etherscan.io/tx/"
+  },
+  {
+    id: "base",
+    label: "Base",
+    chainId: 8453,
+    nativeSymbol: "ETH",
+    usdcAddress: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+    explorerUrl: "https://basescan.org/tx/"
+  },
+  {
+    id: "base-sepolia",
+    label: "Base Sepolia",
+    chainId: 84532,
+    nativeSymbol: "ETH",
+    usdcAddress: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    explorerUrl: "https://sepolia.basescan.org/tx/"
+  },
+  {
+    id: "arbitrum",
+    label: "Arbitrum",
+    chainId: 42161,
+    nativeSymbol: "ETH",
+    usdcAddress: "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+    explorerUrl: "https://arbiscan.io/tx/"
+  },
+  {
+    id: "optimism",
+    label: "Optimism",
+    chainId: 10,
+    nativeSymbol: "ETH",
+    usdcAddress: "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+    explorerUrl: "https://optimistic.etherscan.io/tx/"
+  },
+  {
+    id: "polygon",
+    label: "Polygon",
+    chainId: 137,
+    nativeSymbol: "MATIC",
+    usdcAddress: "0x3c499c542cef5e3811e1192ce70d8cc03d5c3359",
+    explorerUrl: "https://polygonscan.com/tx/"
+  }
+];
+const ERC20_TRANSFER_ABI = [
+  {
+    type: "function",
+    name: "transfer",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" }
+    ],
+    outputs: [{ name: "", type: "bool" }]
+  }
+] as const;
 
 const markdownComponents: Components = {
   h1: ({ children }) => <h1 className="text-base font-semibold leading-6">{children}</h1>,
@@ -421,6 +498,7 @@ export function DashboardClient({
               onWalletAddress={setWalletAddress}
               onExecutionWalletId={setExecutionWalletId}
               isLoadingPortfolio={isLoadingPortfolio}
+              tokenBalances={data.portfolio.tokenBalances}
               automationSignerId={automationSignerId}
               automationPolicyIds={automationPolicyIds}
             />
@@ -664,6 +742,7 @@ function PrivyWalletControls({
   onWalletAddress,
   onExecutionWalletId,
   isLoadingPortfolio,
+  tokenBalances,
   automationSignerId,
   automationPolicyIds
 }: {
@@ -671,15 +750,27 @@ function PrivyWalletControls({
   onWalletAddress: (address: string | null) => void;
   onExecutionWalletId: (walletId: string | null) => void;
   isLoadingPortfolio: boolean;
+  tokenBalances: TokenBalance[];
   automationSignerId?: string;
   automationPolicyIds: string[];
 }) {
   const { ready, authenticated, login, logout, user } = usePrivy();
   const { ready: walletsReady, wallets } = useWallets();
   const { createWallet } = useCreateWallet();
+  const { sendTransaction } = useSendTransaction();
   const { addSessionSigners, removeSessionSigners } = useSessionSigners();
   const [isDelegating, setIsDelegating] = useState(false);
   const [isCreatingWallet, setIsCreatingWallet] = useState(false);
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+  const [transferMode, setTransferMode] = useState<"send" | "receive">("receive");
+  const [selectedTransferNetworkId, setSelectedTransferNetworkId] = useState("base");
+  const [selectedTransferToken, setSelectedTransferToken] = useState<TransferToken>("native");
+  const [sendRecipient, setSendRecipient] = useState("");
+  const [sendAmount, setSendAmount] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendHash, setSendHash] = useState<string | null>(null);
+  const [isSendingFunds, setIsSendingFunds] = useState(false);
+  const [receiveCopied, setReceiveCopied] = useState(false);
   const [walletCreationError, setWalletCreationError] = useState<string | null>(null);
   const [delegationError, setDelegationError] = useState<string | null>(null);
   const [automationEnabled, setAutomationEnabled] = useState(false);
@@ -694,6 +785,21 @@ function PrivyWalletControls({
   ) as DelegatedWalletMetadata | undefined;
   const delegatedWalletId = linkedWallet?.id ?? undefined;
   const isDelegated = automationEnabled || Boolean(linkedWallet?.delegated && delegatedWalletId);
+  const selectedTransferNetwork =
+    TRANSFER_NETWORKS.find((network) => network.id === selectedTransferNetworkId) ?? TRANSFER_NETWORKS[1];
+  const selectedNetworkBalances = tokenBalances.filter((balance) => balance.chain === selectedTransferNetwork.id);
+  const selectedNativeBalance =
+    selectedNetworkBalances.find((balance) => balance.symbol.toUpperCase() === selectedTransferNetwork.nativeSymbol) ?? null;
+  const selectedUsdcBalance =
+    selectedNetworkBalances.find(
+      (balance) =>
+        balance.symbol.toUpperCase() === "USDC" &&
+        (balance.address.toLowerCase() === selectedTransferNetwork.usdcAddress.toLowerCase() ||
+          balance.address === "native")
+    ) ?? selectedNetworkBalances.find((balance) => balance.symbol.toUpperCase() === "USDC") ?? null;
+  const selectedTokenSymbol = selectedTransferToken === "native" ? selectedTransferNetwork.nativeSymbol : "USDC";
+  const selectedTokenBalance = selectedTransferToken === "native" ? selectedNativeBalance : selectedUsdcBalance;
+  const selectedNetworkValueUsd = selectedNetworkBalances.reduce((total, balance) => total + balance.valueUsd, 0);
 
   useEffect(() => {
     if (!ready || !walletsReady) return;
@@ -759,6 +865,65 @@ function PrivyWalletControls({
     }
   }
 
+  async function handleCopyReceiveAddress() {
+    if (!walletAddress) return;
+
+    try {
+      await navigator.clipboard.writeText(walletAddress);
+      setReceiveCopied(true);
+      window.setTimeout(() => setReceiveCopied(false), 1600);
+    } catch {
+      setReceiveCopied(false);
+    }
+  }
+
+  async function handleSendFunds() {
+    if (!walletAddress) return;
+
+    setIsSendingFunds(true);
+    setSendError(null);
+    setSendHash(null);
+
+    try {
+      if (!isAddress(sendRecipient)) {
+        throw new Error("Enter a valid EVM recipient address.");
+      }
+
+      const value = selectedTransferToken === "native" ? parseEther(sendAmount) : parseUnits(sendAmount, 6);
+      if (value <= 0n) {
+        throw new Error("Enter an amount greater than 0.");
+      }
+
+      const transaction =
+        selectedTransferToken === "native"
+          ? {
+              to: sendRecipient,
+              value,
+              chainId: selectedTransferNetwork.chainId
+            }
+          : {
+              to: selectedTransferNetwork.usdcAddress,
+              value: 0n,
+              data: encodeFunctionData({
+                abi: ERC20_TRANSFER_ABI,
+                functionName: "transfer",
+                args: [sendRecipient, value]
+              }),
+              chainId: selectedTransferNetwork.chainId
+            };
+
+      const result = await sendTransaction(transaction, { address: walletAddress });
+
+      setSendHash(result.hash);
+      setSendRecipient("");
+      setSendAmount("");
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Send transaction was not completed.");
+    } finally {
+      setIsSendingFunds(false);
+    }
+  }
+
   if (!ready) {
     return (
       <Button disabled>
@@ -808,6 +973,10 @@ function PrivyWalletControls({
           {isLoadingPortfolio ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <WalletCards className="mr-2 h-4 w-4" />}
           {shortAddress(connectedAddress)}
         </Button>
+        <Button variant="secondary" onClick={() => setTransferModalOpen(true)}>
+          <Send className="mr-2 h-4 w-4" />
+          Send / Receive
+        </Button>
         {isDelegated ? (
           <Button variant="secondary" onClick={() => void handleDisableAutomation()} disabled={isDelegating}>
             <ShieldCheck className="mr-2 h-4 w-4" />
@@ -832,6 +1001,225 @@ function PrivyWalletControls({
         </p>
       ) : null}
       {delegationError ? <p className="max-w-xl text-xs text-destructive">{delegationError}</p> : null}
+      {transferModalOpen && walletAddress ? (
+        <WalletTransferModal
+          amount={sendAmount}
+          copied={receiveCopied}
+          error={sendError}
+          isSending={isSendingFunds}
+          mode={transferMode}
+          network={selectedTransferNetwork}
+          selectedToken={selectedTransferToken}
+          selectedTokenBalance={selectedTokenBalance}
+          selectedTokenSymbol={selectedTokenSymbol}
+          usdcBalance={selectedUsdcBalance}
+          networkValueUsd={selectedNetworkValueUsd}
+          networks={TRANSFER_NETWORKS}
+          onAmount={setSendAmount}
+          onClose={() => setTransferModalOpen(false)}
+          onCopy={() => void handleCopyReceiveAddress()}
+          onMode={setTransferMode}
+          onNetwork={(networkId) => {
+            setSelectedTransferNetworkId(networkId);
+            setSendError(null);
+            setSendHash(null);
+          }}
+          onRecipient={setSendRecipient}
+          onSend={() => void handleSendFunds()}
+          onToken={(token) => {
+            setSelectedTransferToken(token);
+            setSendError(null);
+            setSendHash(null);
+          }}
+          recipient={sendRecipient}
+          txHash={sendHash}
+          walletAddress={walletAddress}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function WalletTransferModal({
+  amount,
+  copied,
+  error,
+  isSending,
+  mode,
+  network,
+  networkValueUsd,
+  networks,
+  onAmount,
+  onClose,
+  onCopy,
+  onMode,
+  onNetwork,
+  onRecipient,
+  onSend,
+  onToken,
+  recipient,
+  selectedToken,
+  selectedTokenBalance,
+  selectedTokenSymbol,
+  txHash,
+  usdcBalance,
+  walletAddress
+}: {
+  amount: string;
+  copied: boolean;
+  error: string | null;
+  isSending: boolean;
+  mode: "send" | "receive";
+  network: TransferNetwork;
+  networkValueUsd: number;
+  networks: TransferNetwork[];
+  onAmount: (amount: string) => void;
+  onClose: () => void;
+  onCopy: () => void;
+  onMode: (mode: "send" | "receive") => void;
+  onNetwork: (networkId: string) => void;
+  onRecipient: (recipient: string) => void;
+  onSend: () => void;
+  onToken: (token: TransferToken) => void;
+  recipient: string;
+  selectedToken: TransferToken;
+  selectedTokenBalance: TokenBalance | null;
+  selectedTokenSymbol: string;
+  txHash: string | null;
+  usdcBalance: TokenBalance | null;
+  walletAddress: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 py-8">
+      <div className="w-full max-w-lg rounded-lg border bg-white shadow-xl">
+        <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+          <div>
+            <h3 className="text-base font-semibold text-foreground">Send / Receive</h3>
+            <p className="mt-1 text-xs text-muted-foreground">Manage funds for your Privy embedded wallet.</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={onClose}>
+            Close
+          </Button>
+        </div>
+
+        <div className="space-y-4 px-5 py-5">
+          <div className="grid grid-cols-2 rounded-md border p-1">
+            <Button variant={mode === "receive" ? "secondary" : "ghost"} size="sm" onClick={() => onMode("receive")}>
+              <Download className="mr-2 h-4 w-4" />
+              Receive
+            </Button>
+            <Button variant={mode === "send" ? "secondary" : "ghost"} size="sm" onClick={() => onMode("send")}>
+              <Send className="mr-2 h-4 w-4" />
+              Send
+            </Button>
+          </div>
+
+          <label className="grid gap-2 text-sm">
+            <span className="font-medium text-foreground">Network</span>
+            <select
+              className="h-10 rounded-md border bg-white px-3 text-sm outline-none focus:border-primary"
+              value={network.id}
+              onChange={(event) => onNetwork(event.target.value)}
+            >
+              {networks.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="grid gap-2 text-sm">
+            <span className="font-medium text-foreground">Asset</span>
+            <select
+              className="h-10 rounded-md border bg-white px-3 text-sm outline-none focus:border-primary"
+              value={selectedToken}
+              onChange={(event) => onToken(event.target.value as TransferToken)}
+            >
+              <option value="native">{network.nativeSymbol}</option>
+              <option value="usdc">USDC</option>
+            </select>
+          </label>
+
+          <div className="grid gap-2 rounded-md border bg-muted/30 p-3 text-xs sm:grid-cols-2">
+            <div>
+              <p className="text-muted-foreground">{selectedTokenSymbol} balance</p>
+              <p className="mt-1 font-medium text-foreground">
+                {selectedTokenBalance
+                  ? `${selectedTokenBalance.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selectedTokenSymbol}`
+                  : `0 ${selectedTokenSymbol}`}
+              </p>
+            </div>
+            <div>
+              <p className="text-muted-foreground">Total on {network.label}</p>
+              <p className="mt-1 font-medium text-foreground">{formatCurrency(networkValueUsd)}</p>
+            </div>
+          </div>
+
+          {mode === "receive" ? (
+            <div className="space-y-3">
+              <div className="rounded-md border bg-muted/30 p-4">
+                <p className="text-xs text-muted-foreground">Receive address on {network.label}</p>
+                <p className="mt-2 break-all font-mono text-sm text-foreground">{walletAddress}</p>
+              </div>
+              <Button variant="outline" onClick={onCopy}>
+                <Copy className="mr-2 h-4 w-4" />
+                {copied ? "Copied" : "Copy Address"}
+              </Button>
+              <p className="text-xs leading-5 text-muted-foreground">
+                This embedded wallet uses the same EVM address on each listed network. It can receive {network.nativeSymbol} and USDC on {network.label}.
+                {usdcBalance ? ` Indexed USDC balance: ${usdcBalance.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} USDC.` : ""}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <label className="grid gap-2 text-sm">
+                <span className="font-medium text-foreground">Recipient</span>
+                <input
+                  className="h-10 rounded-md border px-3 text-sm outline-none focus:border-primary"
+                  placeholder="0x..."
+                  value={recipient}
+                  onChange={(event) => onRecipient(event.target.value)}
+                />
+              </label>
+              <label className="grid gap-2 text-sm">
+                <span className="font-medium text-foreground">Amount ({selectedTokenSymbol})</span>
+                <input
+                  className="h-10 rounded-md border px-3 text-sm outline-none focus:border-primary"
+                  inputMode="decimal"
+                  min="0"
+                  placeholder="0.0"
+                  type="number"
+                  value={amount}
+                  onChange={(event) => onAmount(event.target.value)}
+                />
+              </label>
+              <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                Sends {selectedTokenSymbol} from the embedded wallet on {network.label}.
+                {selectedToken === "usdc" ? ` USDC contract: ${network.usdcAddress}.` : ""}
+                {selectedTokenBalance
+                  ? ` Available: ${selectedTokenBalance.amount.toLocaleString(undefined, { maximumFractionDigits: 6 })} ${selectedTokenSymbol}.`
+                  : ""}
+              </div>
+              {error ? <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p> : null}
+              {txHash ? (
+                <a
+                  className="block break-all rounded-md bg-primary/10 px-3 py-2 text-xs font-medium text-primary underline-offset-4 hover:underline"
+                  href={`${network.explorerUrl}${txHash}`}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  Transaction submitted: {txHash}
+                </a>
+              ) : null}
+              <Button onClick={onSend} disabled={isSending || !recipient || !amount}>
+                {isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                Send {selectedTokenSymbol}
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
